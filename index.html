@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prediction Game</title>
+
+<style>
+:root{
+  --bg:#0b0c0f;
+  --card:#14161b;
+  --border:#1f2229;
+  --text:#e5e7eb;
+  --muted:#9aa0aa;
+  --green:#2ecc71;
+  --red:#e74c3c;
+  --blue:#4f8cff;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+}
+
+/* APP */
+#app{
+  max-width:1600px;
+  margin:auto;
+  padding:14px;
+  display:grid;
+  grid-template-columns:1fr;
+  gap:14px;
+}
+
+@media(min-width:1024px){
+  #app{grid-template-columns:1.3fr 1fr;}
+}
+
+/* GRAPH */
+#graph{
+  height:260px;
+  background:
+    linear-gradient(to right,rgba(255,255,255,.05) 1px,transparent 1px),
+    linear-gradient(to top,rgba(255,255,255,.05) 1px,transparent 1px),
+    var(--card);
+  background-size:40px 100%,100% 40px,auto; /* FIXED GRID */
+  border:1px solid var(--border);
+  border-radius:18px;
+  position:relative;
+  overflow:hidden;
+}
+
+@media(min-width:1024px){
+  #graph{height:320px;}
+}
+
+#midline{
+  position:absolute;
+  top:50%;
+  width:100%;
+  height:1.5px;
+  background:#3a3f4a;
+}
+
+/* COLUMN */
+.column{
+  position:absolute;
+  bottom:0;
+  width:42px;
+  border-radius:8px 8px 0 0;
+  transition:left .45s ease,height .4s ease;
+}
+
+.marker{
+  position:absolute;
+  top:-12px;
+  left:50%;
+  transform:translateX(-50%);
+  width:8px;
+  height:8px;
+  border-radius:50%;
+}
+
+/* LEFT */
+#left{display:flex;flex-direction:column;gap:10px}
+
+/* TA */
+#ta{
+  height:36px;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:12px;
+  position:relative;
+  overflow:hidden;
+}
+
+.ta{
+  position:absolute;
+  top:4px;
+  font-size:12px;
+  padding:4px 10px;
+  border-radius:10px;
+  transition:left .45s ease;
+}
+
+/* RIGHT */
+#panel{display:flex;flex-direction:column;gap:10px}
+
+.card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:10px;
+}
+
+/* PERFORMANCE */
+#performance{
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  gap:6px;
+  text-align:center;
+  font-size:12px;
+}
+.metric span{
+  display:block;
+  font-size:16px;
+  margin-top:4px;
+}
+#accuracy span{color:var(--blue)}
+#last span.win{color:var(--green)}
+#last span.loss{color:var(--red)}
+#streak span{color:var(--green)}
+
+#info{
+  display:flex;
+  justify-content:space-between;
+  font-size:13px;
+  color:var(--muted);
+}
+
+#stats{display:flex;gap:10px}
+.stat{
+  flex:1;
+  text-align:center;
+  padding:8px;
+  border-radius:14px;
+  border:1px solid var(--border);
+}
+#ca{color:var(--green)}
+#inca{color:var(--red)}
+
+#buttons{display:flex;gap:12px}
+button{
+  flex:1;
+  padding:14px;
+  border-radius:18px;
+  border:none;
+  font-size:15px;
+  cursor:pointer;
+}
+#above{background:rgba(46,204,113,.15);color:var(--green)}
+#below{background:rgba(231,76,60,.15);color:var(--red)}
+button.locked{box-shadow:0 0 0 1px currentColor inset}
+button.faded{opacity:.35}
+button:disabled{cursor:not-allowed}
+</style>
+</head>
+
+<body>
+<div id="app">
+
+<!-- LEFT -->
+<div id="left">
+  <div id="graph"><div id="midline"></div></div>
+  <div id="ta"></div>
+</div>
+
+<!-- RIGHT -->
+<div id="panel">
+
+<div class="card" id="performance">
+  <div class="metric" id="accuracy">Accuracy<span>0%</span></div>
+  <div class="metric" id="last">Last<span>—</span></div>
+  <div class="metric" id="streak">Streak<span>0</span></div>
+</div>
+
+<div class="card" id="info">
+  <div>Next: <strong><span id="timer">5</span>s</strong></div>
+  <div>Total: <strong><span id="total">0</span></strong></div>
+</div>
+
+<div id="stats">
+  <div id="ca" class="stat">CA: 0</div>
+  <div id="inca" class="stat">INCA: 0</div>
+</div>
+
+<div id="buttons">
+  <button id="above">Above</button>
+  <button id="below">Below</button>
+</div>
+
+</div>
+</div>
+
+<script>
+const MAX=4,INTERVAL=5,COL_W=42;
+const graph=document.getElementById('graph');
+const taWrap=document.getElementById('ta');
+const timerEl=document.getElementById('timer');
+const totalEl=document.getElementById('total');
+const caEl=document.getElementById('ca');
+const incaEl=document.getElementById('inca');
+const accEl=document.querySelector('#accuracy span');
+const streakEl=document.querySelector('#streak span');
+const lastEl=document.querySelector('#last span');
+const aboveBtn=document.getElementById('above');
+const belowBtn=document.getElementById('below');
+
+let columns=[],tas=[],timer=INTERVAL;
+let ca=0,inca=0,total=0,streak=0;
+let prediction=null,locked=false,lastMarker=null;
+
+function slot(){
+  return (graph.clientWidth-COL_W)/(MAX-1);
+}
+
+/* SMART GENERATION (NO LOCK) */
+function nextValue(){
+  if(columns.length<3) return Math.random()>0.5?1:0;
+
+  const last=columns.slice(-3).map(c=>+c.dataset.v);
+  const sum=last.reduce((a,b)=>a+b,0);
+
+  let p=0.5;
+  if(sum===3) p=0.35;
+  else if(sum===0) p=0.65;
+  else if(sum===2) p=0.55;
+  else p=0.45;
+
+  p+=(Math.random()-0.5)*0.25;
+  p=Math.max(0.2,Math.min(0.8,p));
+  return Math.random()<p?1:0;
+}
+
+/* TA = Probability of Green (%) */
+function calculateTA(){
+  if(columns.length<3) return 50;
+  const last=columns.slice(-3).map(c=>+c.dataset.v);
+  return Math.round((last.reduce((a,b)=>a+b,0)/3)*100);
+}
+
+function createColumn(v){
+  const c=document.createElement('div');
+  c.className='column';
+  c.dataset.v=v;
+  c.style.height='0px';
+  c.style.background='#fff';
+  graph.appendChild(c);
+
+  const mid=graph.clientHeight/2;
+  const h=v?mid+Math.random()*60:mid-Math.random()*60;
+
+  setTimeout(()=>{
+    c.style.height=h+'px';
+    c.style.background=v?'var(--green)':'var(--red)';
+  },40);
+
+  return c;
+}
+
+function addMarker(col,v){
+  if(lastMarker) lastMarker.remove();
+  const m=document.createElement('div');
+  m.className='marker';
+  m.style.background=v?'var(--green)':'var(--red)';
+  col.appendChild(m);
+  lastMarker=m;
+}
+
+function createTA(){
+  const t=document.createElement('div');
+  t.className='ta';
+  const value=calculateTA();
+  t.textContent='TA '+value;
+
+  if(value>=60){
+    t.style.color='var(--green)';
+    t.style.background='rgba(46,204,113,.15)';
+  }else if(value<=40){
+    t.style.color='var(--red)';
+    t.style.background='rgba(231,76,60,.15)';
+  }else{
+    t.style.color='var(--blue)';
+    t.style.background='rgba(79,140,255,.15)';
+  }
+  taWrap.appendChild(t);
+  return t;
+}
+
+function step(){
+  const v=nextValue();
+
+  if(prediction!==null){
+    const win=v===prediction;
+    win?ca++:inca++;
+    streak=win?streak+1:0;
+    total++;
+
+    caEl.textContent='CA: '+ca;
+    incaEl.textContent='INCA: '+inca;
+    totalEl.textContent=total;
+    accEl.textContent=Math.round((ca/total)*100)+'%';
+    streakEl.textContent=streak;
+    lastEl.textContent=win?'WIN':'LOSS';
+    lastEl.className=win?'win':'loss';
+  }
+
+  const c=createColumn(v);
+  addMarker(c,v);
+  const t=createTA();
+
+  columns.push(c);
+  tas.push(t);
+
+  if(columns.length>MAX){
+    graph.removeChild(columns.shift());
+    taWrap.removeChild(tas.shift());
+  }
+
+  const s=slot();
+  columns.forEach((col,i)=>{
+    col.style.left=(i*s)+'px';
+    tas[i].style.left=(i*s)+'px';
+  });
+
+  timer=INTERVAL;
+  prediction=null;
+  locked=false;
+  aboveBtn.disabled=false;
+  belowBtn.disabled=false;
+  aboveBtn.className='';
+  belowBtn.className='';
+}
+
+setInterval(()=>{
+  timer--;
+  if(timer<=0) step();
+  timerEl.textContent=timer;
+},1000);
+
+aboveBtn.onclick=()=>{
+  if(locked) return;
+  prediction=1; locked=true;
+  aboveBtn.classList.add('locked');
+  belowBtn.classList.add('faded');
+  aboveBtn.disabled=belowBtn.disabled=true;
+};
+
+belowBtn.onclick=()=>{
+  if(locked) return;
+  prediction=0; locked=true;
+  belowBtn.classList.add('locked');
+  aboveBtn.classList.add('faded');
+  aboveBtn.disabled=belowBtn.disabled=true;
+};
+
+/* INITIAL FILL */
+for(let i=0;i<MAX;i++) step();
+</script>
+</body>
+</html>
